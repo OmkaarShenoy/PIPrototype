@@ -1,134 +1,288 @@
 import 'dart:async';
+
 import 'dart:html' as html;
+
 import 'dart:typed_data';
+
 import 'dart:ui' as ui;
+
 import 'package:file_picker/file_picker.dart';
+
 import 'package:flutter/material.dart';
 
+
+
 void main() {
+
   runApp(const MyApp());
+
 }
+
+
 
 class MyApp extends StatelessWidget {
+
   const MyApp({super.key});
 
+
+
   @override
+
   Widget build(BuildContext context) {
+
     return MaterialApp(
+
       title: 'Video Frame Extractor',
+
       theme: ThemeData(
+
         primarySwatch: Colors.blue,
+
       ),
+
       home: const VideoFrameExtractorPage(),
+
     );
+
   }
+
 }
+
+
 
 class VideoFrameExtractorPage extends StatefulWidget {
+
   const VideoFrameExtractorPage({super.key});
 
+
+
   @override
+
   _VideoFrameExtractorPageState createState() =>
+
       _VideoFrameExtractorPageState();
+
 }
+
+
 
 class _VideoFrameExtractorPageState extends State<VideoFrameExtractorPage> {
+
   html.VideoElement? _videoElement;
+
   html.CanvasElement? _canvasElement;
+
   int totalFrames = 0;
+
   int fps = 30; // Adjust based on your video's frame rate
+
   TextEditingController frameNumberController = TextEditingController();
+
   Uint8List? selectedFrame;
+
   bool isPlaying = false;
+
   Timer? _playbackTimer;
+
   int currentFrame = 0;
 
+
+
+  // Zoom level
+
+  double zoomLevel = 1.0;
+
+
+
   // Initialize a unique view type for the VideoElement
+
   final String _videoElementViewType = 'video-element-view';
 
+
+
   @override
+
   void initState() {
+
     super.initState();
-    // Register the view factory for the VideoElement
-    // This is necessary if you want to display the VideoElement, but since we're rendering frames manually, it's optional
-    // Uncomment the following lines if you want to display the video element
-    /*
-    ui.platformViewRegistry.registerViewFactory(
-      _videoElementViewType,
-      (int viewId) => _videoElement!,
-    );
-    */
+
+    _initializeKeyboardControls();
+     debugPrint('VideoFrameExtractorPage initialized.');
+
   }
 
-  Future<void> _pickVideo() async {
-  final result = await FilePicker.platform.pickFiles(type: FileType.video);
 
-   
-   
-  if (result != null) {
-    final fileBytes = result.files.single.bytes;
-    final blob = html.Blob([fileBytes!]);
-    final url = html.Url.createObjectUrl(blob);
 
-    // Initialize video element
-    _videoElement = html.VideoElement()
-      ..src = url
-      ..autoplay = false
-      ..controls = false // Hide default controls
-      ..preload = 'auto';
-
-    // Listen to metadata to get dimensions and duration
-    _videoElement!.onLoadedMetadata.listen((_) {
-      final videoWidth = _videoElement!.videoWidth;
-      final videoHeight = _videoElement!.videoHeight;
-
-      // Dynamically set canvas dimensions
-      _canvasElement = html.CanvasElement(width: videoWidth, height: videoHeight);
-
-      setState(() {
-        totalFrames = (_videoElement!.duration * fps).round();
-        currentFrame = 0;
-      });
-    });
-
-    setState(() {});
-  }
-}
-
-  Future<void> _captureFrame(int frameNumber) async {
-    if (_videoElement == null || _canvasElement == null) return;
-
-    final time = frameNumber / fps;
-    _videoElement!.currentTime = time;
-
-    // Wait for the video to seek to the desired time
-    await _videoElement!.onSeeked.first;
-
-    final context = _canvasElement!.context2D;
-    context.drawImage(_videoElement!, 0, 0);
-
-    final blob = await _canvasElement!.toBlob('image/jpeg');
-    if (blob == null) return;
-
-    final reader = html.FileReader();
-    final completer = Completer<Uint8List>();
-
-    reader.onLoadEnd.listen((event) {
-      if (reader.result is Uint8List) {
-        completer.complete(reader.result as Uint8List);
-      } else if (reader.result is ByteBuffer) {
-        completer.complete(Uint8List.view((reader.result as ByteBuffer)));
+void _initializeKeyboardControls() {
+    debugPrint('Initializing keyboard controls...');
+    html.document.onKeyDown.listen((event) {
+      debugPrint('Key pressed: ${event.key}');
+      if (event.key == '+') {
+        setState(() {
+          zoomLevel = (zoomLevel + 0.1).clamp(0.5, 5.0); // Max zoom is 5x
+          debugPrint('Zoom level increased to $zoomLevel');
+        });
+      } else if (event.key == '-') {
+        setState(() {
+          zoomLevel = (zoomLevel - 0.1).clamp(0.5, 5.0); // Min zoom is 0.5x
+          debugPrint('Zoom level decreased to $zoomLevel');
+        });
+      } else if (event.key == ' ') {
+        // Toggle play/pause
+        setState(() {
+          isPlaying ? _pauseVideo() : _playVideo();
+          debugPrint(isPlaying ? 'Video playing...' : 'Video paused.');
+        });
+      } else if (event.key == 'ArrowRight') {
+        // Seek forward
+        _seekForward();
+        debugPrint('Seeking forward...');
+      } else if (event.key == 'ArrowLeft') {
+        // Seek backward
+        _seekBackward();
+        debugPrint('Seeking backward...');
       } else {
-        completer.completeError('Failed to read blob');
+        debugPrint('No action for key: ${event.key}');
       }
     });
+  }
+
+
+
+  Future<void> _pickVideo() async {
+
+    final result = await FilePicker.platform.pickFiles(type: FileType.video);
+
+
+
+    if (result != null) {
+
+      final fileBytes = result.files.single.bytes;
+
+      final blob = html.Blob([fileBytes!]);
+
+      final url = html.Url.createObjectUrl(blob);
+
+
+
+      // Initialize video element
+
+      _videoElement = html.VideoElement()
+
+        ..src = url
+
+        ..autoplay = false
+
+        ..controls = false // Hide default controls
+
+        ..preload = 'auto';
+
+
+
+      // Listen to metadata to get dimensions and duration
+
+      _videoElement!.onLoadedMetadata.listen((_) {
+
+        final videoWidth = _videoElement!.videoWidth;
+
+        final videoHeight = _videoElement!.videoHeight;
+
+
+
+        // Dynamically set canvas dimensions
+
+        _canvasElement =
+
+            html.CanvasElement(width: videoWidth, height: videoHeight);
+
+
+
+        setState(() {
+
+          totalFrames = (_videoElement!.duration * fps).round();
+
+          currentFrame = 0;
+
+        });
+
+      });
+
+
+
+      setState(() {});
+
+    }
+
+  }
+
+
+
+  Future<void> _captureFrame(int frameNumber) async {
+
+    if (_videoElement == null || _canvasElement == null) return;
+
+
+
+    final time = frameNumber / fps;
+
+    _videoElement!.currentTime = time;
+
+
+
+    // Wait for the video to seek to the desired time
+
+    await _videoElement!.onSeeked.first;
+
+
+
+    final context = _canvasElement!.context2D;
+
+    context.drawImage(_videoElement!, 0, 0);
+
+
+
+    final blob = await _canvasElement!.toBlob('image/jpeg');
+
+
+
+    final reader = html.FileReader();
+
+    final completer = Completer<Uint8List>();
+
+
+
+    reader.onLoadEnd.listen((event) {
+
+      if (reader.result is Uint8List) {
+
+        completer.complete(reader.result as Uint8List);
+
+      } else if (reader.result is ByteBuffer) {
+
+        completer.complete(Uint8List.view((reader.result as ByteBuffer)));
+
+      } else {
+
+        completer.completeError('Failed to read blob');
+
+      }
+
+    });
+
+
 
     reader.readAsArrayBuffer(blob);
+
     final frameData = await completer.future;
 
+
+
     setState(() {
+
       selectedFrame = frameData;
+
     });
+
   }
 
   void _playVideo() {
@@ -166,7 +320,7 @@ class _VideoFrameExtractorPageState extends State<VideoFrameExtractorPage> {
   void _seekForward() async {
     if (_videoElement == null || _canvasElement == null) return;
 
-    int seekFrames = 30; // Number of frames to skip forward
+    int seekFrames = 1; // Number of frames to skip forward
     int targetFrame = currentFrame + seekFrames;
     if (targetFrame >= totalFrames) {
       targetFrame = totalFrames - 1;
@@ -179,7 +333,7 @@ class _VideoFrameExtractorPageState extends State<VideoFrameExtractorPage> {
   void _seekBackward() async {
     if (_videoElement == null || _canvasElement == null) return;
 
-    int seekFrames = 30; // Number of frames to skip backward
+    int seekFrames = 1; // Number of frames to skip backward
     int targetFrame = currentFrame - seekFrames;
     if (targetFrame < 0) {
       targetFrame = 0;
@@ -303,18 +457,31 @@ class _VideoFrameExtractorPageState extends State<VideoFrameExtractorPage> {
                 Expanded(
                   child: Container(
                     color: Colors.black,
-                    child: Center(
-                      child: selectedFrame != null
-                          ? Image.memory(
-                              selectedFrame!,
-                              width: 640,
-                              height: 360,
-                              fit: BoxFit.contain,
-                            )
-                          : const Text(
-                              'Awaiting Input\nClick on a video to view',
-                              style: TextStyle(color: Colors.white),
-                              textAlign: TextAlign.center,
+                    
+                    child: ClipRect(
+
+                      child: Center(
+
+                        child: selectedFrame != null
+
+                            ? Transform.scale(
+                                scale: zoomLevel,
+                                child: Image.memory(
+                                  selectedFrame!,
+                                  width: 640,
+                                  height: 360,
+                                  fit: BoxFit.contain,
+                                ),
+                              )
+                            : const Text(
+
+                                'Awaiting Input\nClick on a video to view',
+
+                                style: TextStyle(color: Colors.white),
+
+                                textAlign: TextAlign.center,
+
+                              ),
                             ),
                     ),
                   ),
